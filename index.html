@@ -7,25 +7,17 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
-    @keyframes drift {
-      0%   { transform: translate(5vw, 10vh); }
-      20%  { transform: translate(55vw, 15vh); }
-      40%  { transform: translate(60vw, 55vh); }
-      60%  { transform: translate(15vw, 60vh); }
-      80%  { transform: translate(40vw, 30vh); }
-      100% { transform: translate(5vw, 10vh); }
+    .stretch-card {
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
     }
-    @keyframes hueShift {
-      0%   { background-position: 0% 50%; }
-      50%  { background-position: 100% 50%; }
-      100% { background-position: 0% 50%; }
+    .stretch-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
     }
-    .ss-bg {
-      background: linear-gradient(120deg, #451a03, #7c2d12, #713f12, #422006);
-      background-size: 300% 300%;
-      animation: hueShift 12s ease infinite;
+    .stretch-card.active {
+      border: 2px solid #f59e0b;
+      background-color: #fef3c7;
     }
-    .ss-card { animation: drift 22s ease-in-out infinite; }
   </style>
   <script type="importmap">
   {
@@ -49,8 +41,8 @@
     import {
       Home, Lightbulb, Briefcase, Activity, Wallet, Plus, Trash2, Check,
       ChevronLeft, ChevronRight, X, ExternalLink, Circle, CheckCircle2,
-      Bell, BellRing, Clock, BookOpen, Image as ImageIcon, AlarmClock, Database,
-      Download, Upload
+      BookOpen, Image as ImageIcon, Database, Download, Upload, HeartPulse,
+      StickyNote
     } from 'lucide-react';
     import {
       PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip,
@@ -59,7 +51,7 @@
 
     // ---------- localStorage-backed state hook ----------
     const STORE_PREFIX = 'speedmenOne:';
-    const STORE_KEYS = ['todos','reminders','events','maps','workLinks','runLinks','books','entries'];
+    const STORE_KEYS = ['todos','notes','calEvents','maps','workLinks','runLinks','books','entries','stretches'];
 
     function usePersistentState(key, initial) {
       const storageKey = STORE_PREFIX + key;
@@ -141,15 +133,35 @@
       Others:    '#78716c',
     };
 
+    // Brainstorm sticky-note colours
+    const NOTE_COLORS = {
+      yellow: 'bg-yellow-200 border-yellow-300',
+      orange: 'bg-orange-200 border-orange-300',
+      lime:   'bg-lime-200 border-lime-300',
+      rose:   'bg-rose-200 border-rose-300',
+      amber:  'bg-amber-200 border-amber-300',
+      stone:  'bg-stone-200 border-stone-300',
+    };
+    const NOTE_COLOR_KEYS = Object.keys(NOTE_COLORS);
+
+    // Stretching exercises data
+    const STRETCHES = [
+      { id: 'neck-roll', name: 'Neck Rolls', duration: 2, description: 'Slowly roll your head in circles to release neck tension', category: 'Upper Body' },
+      { id: 'shoulder-stretch', name: 'Shoulder Stretch', duration: 1.5, description: 'Pull one arm across your chest and hold', category: 'Upper Body' },
+      { id: 'cat-cow', name: 'Cat-Cow', duration: 2, description: 'Alternate between arching and rounding your back', category: 'Back' },
+      { id: 'childs-pose', name: "Child's Pose", duration: 2, description: 'Kneel and stretch arms forward while sitting back on heels', category: 'Back' },
+      { id: 'hamstring-stretch', name: 'Hamstring Stretch', duration: 2, description: 'Reach toward your toes while seated', category: 'Lower Body' },
+      { id: 'quad-stretch', name: 'Quad Stretch', duration: 1.5, description: 'Stand and pull one foot to your glutes', category: 'Lower Body' },
+      { id: 'hip-flexor', name: 'Hip Flexor Stretch', duration: 2, description: 'Lunge forward and push hips gently forward', category: 'Lower Body' },
+      { id: 'seated-twist', name: 'Seated Twist', duration: 2, description: 'Sit and rotate your upper body to each side', category: 'Core' },
+      { id: 'standing-forward-fold', name: 'Standing Forward Fold', duration: 2, description: 'Bend at hips with legs straight, reach toward floor', category: 'Hamstrings' },
+      { id: 'wrist-flexor', name: 'Wrist Flexor Stretch', duration: 1.5, description: 'Extend arm palm up and gently pull fingers back', category: 'Upper Body' },
+    ];
+
     let uid = 0;
     const nid = () => `id-${Date.now()}-${uid++}`;
     const pad = (n) => String(n).padStart(2, '0');
     const dateKey = (y, m, d) => `${y}-${pad(m + 1)}-${pad(d)}`;
-    const fmtTime = (iso) => {
-      if (!iso) return '';
-      const d = new Date(iso);
-      return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    };
 
     function PersonalHub() {
       const [tab, setTab] = useState('dashboard');
@@ -167,62 +179,34 @@
         setTodoInput('');
       };
 
-      // ---------- Reminders ----------
-      const [reminders, setReminders] = usePersistentState('reminders', []);
-      const [remText, setRemText] = useState('');
-      const [remTime, setRemTime] = useState('');
-      const [activeReminder, setActiveReminder] = useState(null);
+      // ---------- Brainstorm Board ----------
+      const [notes, setNotes] = usePersistentState('notes', [
+        { id: nid(), text: 'Jot ideas here — tap to edit, pick a colour, or delete.', color: 'yellow' },
+      ]);
 
-      const addReminder = () => {
-        if (!remText.trim() || !remTime) return;
-        setReminders([...reminders, { id: nid(), text: remText.trim(), time: remTime, fired: false }]
-          .sort((a, b) => new Date(a.time) - new Date(b.time)));
-        setRemText(''); setRemTime('');
+      const addNote = () => {
+        const color = NOTE_COLOR_KEYS[notes.length % NOTE_COLOR_KEYS.length];
+        setNotes([{ id: nid(), text: '', color }, ...notes]);
       };
-
-      const deleteReminder = (id) => setReminders(reminders.filter((r) => r.id !== id));
-
-      useEffect(() => {
-        const iv = setInterval(() => {
-          const now = Date.now();
-          setReminders((prev) => {
-            let toFire = null;
-            const next = prev.map((r) => {
-              if (!r.fired && r.time && new Date(r.time).getTime() <= now) {
-                if (!toFire) toFire = r;
-                return { ...r, fired: true };
-              }
-              return r;
-            });
-            if (toFire) setActiveReminder(toFire);
-            return next;
-          });
-        }, 5000);
-        return () => clearInterval(iv);
-      }, []);
-
-      const snoozeReminder = () => {
-        if (!activeReminder) return;
-        const newTime = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-        setReminders((prev) => prev.map((r) => r.id === activeReminder.id ? { ...r, time: newTime, fired: false } : r));
-        setActiveReminder(null);
-      };
-
-      const previewReminder = () => {
-        setActiveReminder({ id: 'preview', text: remText.trim() || 'This is how your reminder will pop up!', time: new Date().toISOString() });
-      };
+      const updateNote = (id, text) => setNotes(notes.map((n) => n.id === id ? { ...n, text } : n));
+      const setNoteColor = (id, color) => setNotes(notes.map((n) => n.id === id ? { ...n, color } : n));
+      const deleteNote = (id) => setNotes(notes.filter((n) => n.id !== id));
 
       // ---------- Calendar ----------
       const today = new Date();
       const [calY, setCalY] = useState(2026);
       const [calM, setCalM] = useState(6);
-      const [events, setEvents] = usePersistentState('events', {
-        '2026-07-10': [{ id: nid(), type: 'Meeting', text: 'Team sync 3pm' }],
-        '2026-07-15': [{ id: nid(), type: 'Lesson', text: 'Piano lesson' }],
-      });
+      // Events are a flat list, each with a start & end date (YYYY-MM-DD).
+      const [events, setEvents] = usePersistentState('calEvents', [
+        { id: nid(), type: 'Meeting', text: 'Team sync 3pm', start: '2026-07-10', end: '2026-07-10' },
+        { id: nid(), type: 'Lesson', text: 'Piano lesson', start: '2026-07-15', end: '2026-07-15' },
+        { id: nid(), type: 'Annual Leave', text: 'Summer holiday', start: '2026-07-20', end: '2026-07-24' },
+      ]);
       const [modalDate, setModalDate] = useState(null);
       const [evType, setEvType] = useState('Meeting');
       const [evText, setEvText] = useState('');
+      const [evStart, setEvStart] = useState(null);
+      const [evEnd, setEvEnd] = useState(null);
 
       const changeMonth = (delta) => {
         let m = calM + delta, y = calY;
@@ -231,18 +215,27 @@
         setCalM(m); setCalY(y);
       };
 
-      const addEvent = () => {
-        if (!evText.trim() || !modalDate) return;
-        setEvents((prev) => ({
-          ...prev,
-          [modalDate]: [...(prev[modalDate] || []), { id: nid(), type: evType, text: evText.trim() }],
-        }));
+      // events overlapping a given day (string compare works for YYYY-MM-DD)
+      const eventsOn = (key) => events.filter((e) => e.start <= key && e.end >= key);
+
+      const openDay = (key) => {
+        setModalDate(key);
+        setEvStart(key);
+        setEvEnd(key);
         setEvText('');
       };
 
-      const deleteEvent = (key, id) => {
-        setEvents((prev) => ({ ...prev, [key]: prev[key].filter((e) => e.id !== id) }));
+      const addEvent = () => {
+        const text = evText.trim();
+        let s = evStart, e = evEnd;
+        if (!text || !s) return;
+        if (!e) e = s;
+        if (e < s) { const tmp = s; s = e; e = tmp; } // swap if reversed
+        setEvents((prev) => [...prev, { id: nid(), type: evType, text, start: s, end: e }]);
+        setEvText('');
       };
+
+      const deleteEvent = (id) => setEvents((prev) => prev.filter((e) => e.id !== id));
 
       const calendarCells = useMemo(() => {
         const first = new Date(calY, calM, 1).getDay();
@@ -391,6 +384,73 @@
         'Finished': 'bg-lime-200 text-lime-800',
       };
 
+      // ---------- Stretches ----------
+      const [stretches, setStretches] = usePersistentState('stretches', []);
+      const [selectedCat, setSelectedCat] = useState('All');
+      const [activeStretch, setActiveStretch] = useState(null);
+      const [timer, setTimer] = useState(0);
+      const [isRunning, setIsRunning] = useState(false);
+      const [startTime, setStartTime] = useState(null);
+
+      const toggleStretch = (s) => {
+        if (activeStretch?.id === s.id) {
+          setActiveStretch(null);
+          setIsRunning(false);
+          setTimer(0);
+        } else {
+          setActiveStretch(s);
+          setIsRunning(true);
+          setStartTime(Date.now());
+          setTimer(s.duration * 60);
+        }
+      };
+
+      useEffect(() => {
+        let iv;
+        if (isRunning && timer > 0) {
+          iv = setInterval(() => {
+            setTimer((t) => {
+              if (t <= 1) {
+                clearInterval(iv);
+                setIsRunning(false);
+                setActiveStretch(null);
+                return 0;
+              }
+              return t - 1;
+            });
+          }, 1000);
+        } else if (timer === 0 && isRunning) {
+          setIsRunning(false);
+          setActiveStretch(null);
+        }
+        return () => clearInterval(iv);
+      }, [isRunning, timer]);
+
+      const addStretchToSchedule = () => {
+        if (!activeStretch) return;
+        const scheduled = {
+          id: nid(),
+          title: activeStretch.name,
+          duration: activeStretch.duration,
+          category: activeStretch.category,
+          scheduledTime: new Date().toISOString(),
+        };
+        setStretches([scheduled, ...stretches]);
+        setActiveStretch(null);
+        setIsRunning(false);
+        setTimer(0);
+      };
+
+      const removeScheduledStretch = (id) => {
+        setStretches(stretches.filter((s) => s.id !== id));
+      };
+
+      const categories = ['All', ...new Set(STRETCHES.map(s => s.category))];
+
+      const filteredStretches = selectedCat === 'All'
+        ? STRETCHES
+        : STRETCHES.filter(s => s.category === selectedCat);
+
       // ---------- Expenses ----------
       const [entries, setEntries] = usePersistentState('entries', [
         { id: nid(), type: 'Earning', label: 'Salary', amount: 40000, month: 6 },
@@ -442,9 +502,9 @@
       const exportData = () => {
         const data = {
           app: 'Speedmen-One',
-          version: 1,
+          version: 3,
           exportedAt: new Date().toISOString(),
-          data: { todos, reminders, events, maps, workLinks, runLinks, books, entries },
+          data: { todos, notes, calEvents: events, maps, workLinks, runLinks, books, entries, stretches },
         };
         try {
           const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -499,6 +559,7 @@
         { id: 'work', label: 'Work Links', icon: Briefcase },
         { id: 'running', label: 'Running', icon: Activity },
         { id: 'books', label: 'Books', icon: BookOpen },
+        { id: 'stretches', label: 'Stretching', icon: HeartPulse },
         { id: 'expenses', label: 'Expenses', icon: Wallet },
       ];
 
@@ -561,28 +622,32 @@
                   </ul>
                 </section>
 
+                {/* ---------- Brainstorm Board ---------- */}
                 <section className="bg-white rounded-xl shadow p-4">
-                  <h2 className="font-bold text-lg mb-3 flex items-center gap-2"><Bell className="w-5 h-5 text-orange-700" /> Reminders</h2>
-                  <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto_auto] gap-2 mb-3">
-                    <input value={remText} onChange={(e) => setRemText(e.target.value)}
-                      placeholder="Remind me to..."
-                      className="border border-stone-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
-                    <input type="datetime-local" value={remTime} onChange={(e) => setRemTime(e.target.value)}
-                      className="border border-stone-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
-                    <button onClick={addReminder} className="bg-orange-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-orange-800 flex items-center justify-center gap-1"><Plus className="w-4 h-4" /> Add</button>
-                    <button onClick={previewReminder} title="Preview the screensaver popup" className="bg-stone-200 text-stone-700 px-3 py-2 rounded-lg text-sm hover:bg-stone-300 flex items-center justify-center gap-1"><AlarmClock className="w-4 h-4" /> Preview</button>
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="font-bold text-lg flex items-center gap-2"><StickyNote className="w-5 h-5 text-orange-700" /> Brainstorm Board</h2>
+                    <button onClick={addNote} className="bg-orange-700 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-orange-800 flex items-center gap-1"><Plus className="w-4 h-4" /> Note</button>
                   </div>
-                  <ul className="space-y-2">
-                    {reminders.length === 0 && <li className="text-stone-400 text-sm">No reminders. They’ll pop up full-screen when due.</li>}
-                    {reminders.map((r) => (
-                      <li key={r.id} className="flex items-center gap-2 bg-stone-50 rounded-lg px-3 py-2">
-                        {r.fired ? <BellRing className="w-4 h-4 text-stone-400 shrink-0" /> : <Clock className="w-4 h-4 text-orange-600 shrink-0" />}
-                        <span className={`flex-1 min-w-0 truncate text-sm ${r.fired ? 'text-stone-400 line-through' : ''}`}>{r.text}</span>
-                        <span className="text-xs text-stone-500 shrink-0">{fmtTime(r.time)}</span>
-                        <button onClick={() => deleteReminder(r.id)} className="text-stone-400 hover:text-red-600 shrink-0"><Trash2 className="w-4 h-4" /></button>
-                      </li>
+                  {notes.length === 0 && <p className="text-stone-400 text-sm">No notes yet. Add a sticky note to start brainstorming!</p>}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                    {notes.map((n) => (
+                      <div key={n.id} className={`rounded-lg border shadow-sm p-2 flex flex-col ${NOTE_COLORS[n.color]}`}>
+                        <textarea value={n.text} onChange={(e) => updateNote(n.id, e.target.value)}
+                          placeholder="Type an idea..."
+                          rows={4}
+                          className="w-full bg-transparent resize-none text-sm text-stone-800 placeholder-stone-500/60 focus:outline-none min-h-24" />
+                        <div className="flex items-center justify-between mt-1">
+                          <div className="flex gap-1">
+                            {NOTE_COLOR_KEYS.map((ck) => (
+                              <button key={ck} onClick={() => setNoteColor(n.id, ck)}
+                                className={`w-3.5 h-3.5 rounded-full border ${NOTE_COLORS[ck]} ${n.color === ck ? 'ring-2 ring-stone-500' : ''}`} />
+                            ))}
+                          </div>
+                          <button onClick={() => deleteNote(n.id)} className="text-stone-500 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                        </div>
+                      </div>
                     ))}
-                  </ul>
+                  </div>
                 </section>
 
                 <section className="bg-white rounded-xl shadow p-3 sm:p-4">
@@ -604,10 +669,10 @@
                       if (!d) return <div key={i} />;
                       const key = dateKey(calY, calM, d);
                       const holiday = HK_HOLIDAYS[key];
-                      const dayEvents = events[key] || [];
+                      const dayEvents = eventsOn(key);
                       const isToday = today.getFullYear() === calY && today.getMonth() === calM && today.getDate() === d;
                       return (
-                        <button key={i} onClick={() => setModalDate(key)}
+                        <button key={i} onClick={() => openDay(key)}
                           className={`min-h-12 sm:min-h-16 rounded-md sm:rounded-lg border p-0.5 sm:p-1 text-left flex flex-col overflow-hidden hover:border-amber-500 transition ${holiday ? 'bg-red-50 border-red-200' : 'bg-white border-stone-200'} ${isToday ? 'ring-2 ring-amber-700' : ''}`}>
                           <span className={`text-xs font-semibold ${holiday ? 'text-red-700' : 'text-stone-700'}`}>{d}</span>
 
@@ -623,7 +688,9 @@
                           <span className={`hidden sm:block text-[9px] leading-tight text-red-600 truncate ${holiday ? '' : 'sr-only'}`}>{holiday}</span>
                           <div className="hidden sm:flex flex-col gap-0.5 mt-0.5">
                             {dayEvents.slice(0, 2).map((e) => (
-                              <span key={e.id} className={`text-[9px] text-white rounded px-1 truncate ${EVENT_TYPES[e.type]}`}>{e.text}</span>
+                              <span key={e.id} className={`text-[9px] text-white rounded px-1 truncate ${EVENT_TYPES[e.type]}`}>
+                                {e.start !== e.end && '• '}{e.text}
+                              </span>
                             ))}
                             {dayEvents.length > 2 && <span className="text-[9px] text-stone-500">+{dayEvents.length - 2} more</span>}
                           </div>
@@ -766,6 +833,96 @@
               </div>
             )}
 
+            {/* ---------------- STRETCHING ---------------- */}
+            {tab === 'stretches' && (
+              <div className="space-y-4">
+                <section className="bg-white rounded-xl shadow p-4">
+                  <h2 className="font-bold text-lg mb-3 flex items-center gap-2"><HeartPulse className="w-5 h-5 text-orange-700" /> Stretching Routine</h2>
+                  <p className="text-sm text-stone-600 mb-3">Choose exercises below and track your stretching routine. Perfect for warm-ups or cool-downs.</p>
+
+                  <div className="flex flex-wrap gap-1 mb-4">
+                    {categories.map((cat) => (
+                      <button
+                        key={cat}
+                        onClick={() => setSelectedCat(cat)}
+                        className={`px-3 py-1.5 text-sm rounded-full font-medium transition ${selectedCat === cat ? 'bg-orange-700 text-white' : 'bg-stone-200 text-stone-700'}`}>
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {filteredStretches.map((s) => (
+                    <div
+                      key={s.id}
+                      className={`stretch-card bg-white rounded-xl shadow p-4 cursor-pointer ${activeStretch?.id === s.id ? 'active' : ''}`}
+                      onClick={() => toggleStretch(s)}>
+                      <div className="flex justify-between items-start mb-2">
+                        <h3 className="font-semibold text-lg">{s.name}</h3>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-medium">
+                            {s.duration} min
+                          </span>
+                          <span className="text-xs bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full">
+                            {s.category}
+                          </span>
+                        </div>
+                      </div>
+                      <p className="text-sm text-stone-600 mb-3">{s.description}</p>
+                      <div className="flex items-center gap-2 text-xs text-stone-500">
+                        {isRunning && activeStretch?.id === s.id ? (
+                          <>
+                            <div className="w-6 h-6 rounded-full bg-orange-100 flex items-center justify-center">
+                              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                            </div>
+                            <span>Timer: {Math.floor(timer / 60)}:{String(timer % 60).padStart(2, '0')}</span>
+                          </>
+                        ) : (
+                          <button className="text-orange-700 hover:text-orange-800 flex items-center gap-1">
+                            {activeStretch?.id === s.id ? 'Stop' : 'Start'}
+                          </button>
+                        )}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); addStretchToSchedule(); }}
+                          className="text-stone-400 hover:text-stone-600">
+                          <Plus className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </section>
+
+                <section className="bg-white rounded-xl shadow p-4">
+                  <h3 className="font-bold text-lg mb-3 flex items-center gap-2">
+                    <HeartPulse className="w-5 h-5 text-orange-700" />
+                    Scheduled Stretches
+                  </h3>
+                  {stretches.length === 0 ? (
+                    <p className="text-stone-500 text-sm">No stretches scheduled yet. Add some from above!</p>
+                  ) : (
+                    <ul className="space-y-3">
+                      {stretches.map((s) => (
+                        <li key={s.id} className="flex items-center justify-between bg-stone-50 rounded-lg px-4 py-3">
+                          <div>
+                            <span className="font-medium">{s.title}</span>
+                            <div className="text-xs text-stone-500">
+                              {s.duration} min • {s.category} • {new Date(s.scheduledTime).toLocaleTimeString()}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => removeScheduledStretch(s.id)}
+                            className="text-stone-400 hover:text-red-600">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              </div>
+            )}
+
             {/* ---------------- EXPENSES ---------------- */}
             {tab === 'expenses' && (
               <div className="space-y-4">
@@ -833,7 +990,7 @@
             )}
           </main>
 
-          {/* ---------- Event Modal ---------- */}
+          {/* ---------- Event Modal (Calendar Add) ---------- */}
           {modalDate && (
             <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={() => setModalDate(null)}>
               <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
@@ -843,17 +1000,32 @@
                 </div>
                 {HK_HOLIDAYS[modalDate] && <p className="text-sm text-red-700 mb-2">🎉 {HK_HOLIDAYS[modalDate]}</p>}
                 <div className="space-y-1 mb-3 max-h-40 overflow-y-auto">
-                  {(events[modalDate] || []).map((e) => (
+                  {eventsOn(modalDate).map((e) => (
                     <div key={e.id} className="flex items-center gap-2 bg-stone-50 rounded-lg px-2 py-1.5">
                       <span className={`w-2 h-2 rounded-full shrink-0 ${EVENT_TYPES[e.type]}`} />
                       <span className="text-xs text-stone-500 w-24 shrink-0">{e.type}</span>
-                      <span className="flex-1 min-w-0 text-sm truncate">{e.text}</span>
-                      <button onClick={() => deleteEvent(modalDate, e.id)} className="text-stone-400 hover:text-red-600 shrink-0"><Trash2 className="w-4 h-4" /></button>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm block truncate">{e.text}</span>
+                        {e.start !== e.end && (
+                          <span className="text-[10px] text-stone-400">{e.start} → {e.end}</span>
+                        )}
+                      </div>
+                      <button onClick={() => deleteEvent(e.id)} className="text-stone-400 hover:text-red-600 shrink-0"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   ))}
-                  {(events[modalDate] || []).length === 0 && <p className="text-sm text-stone-400">No events yet.</p>}
+                  {eventsOn(modalDate).length === 0 && <p className="text-sm text-stone-400">No events yet.</p>}
                 </div>
                 <div className="flex flex-col gap-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="text-xs text-stone-500 flex flex-col gap-1">From
+                      <input type="date" value={evStart || ''} onChange={(e) => setEvStart(e.target.value)}
+                        className="border border-stone-300 rounded-lg px-2 py-2 text-sm" />
+                    </label>
+                    <label className="text-xs text-stone-500 flex flex-col gap-1">To
+                      <input type="date" value={evEnd || ''} onChange={(e) => setEvEnd(e.target.value)}
+                        className="border border-stone-300 rounded-lg px-2 py-2 text-sm" />
+                    </label>
+                  </div>
                   <select value={evType} onChange={(e) => setEvType(e.target.value)} className="border border-stone-300 rounded-lg px-3 py-2 text-sm">
                     {Object.keys(EVENT_TYPES).map((t) => <option key={t}>{t}</option>)}
                   </select>
@@ -863,6 +1035,8 @@
                       placeholder="Description..." className="flex-1 min-w-0 border border-stone-300 rounded-lg px-3 py-2 text-sm" />
                     <button onClick={addEvent} className="bg-amber-800 text-white px-4 rounded-lg text-sm hover:bg-amber-900 shrink-0">Add</button>
                   </div>
+                  <p className="text-[11px] text-stone-400">Set a later "To" date to book a period (e.g. annual leave). It will show across every day in the range.</p>
+                  <button onClick={() => setModalDate(null)} className="mt-1 bg-stone-200 text-stone-700 rounded-lg py-2 text-sm hover:bg-stone-300">Done</button>
                 </div>
               </div>
             </div>
@@ -873,7 +1047,7 @@
             <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-[70]" onClick={() => setConfirmClear(false)}>
               <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
                 <h3 className="font-bold text-lg mb-2">Clear all data?</h3>
-                <p className="text-sm text-stone-500 mb-4">This deletes all saved to-dos, reminders, events, ideas, links, books and expenses from this browser. Consider exporting a backup first. This cannot be undone.</p>
+                <p className="text-sm text-stone-500 mb-4">This deletes all saved to-dos, notes, events, ideas, links, books and expenses from this browser. Consider exporting a backup first. This cannot be undone.</p>
                 <div className="flex gap-2">
                   <button onClick={() => setConfirmClear(false)} className="flex-1 bg-stone-200 text-stone-700 rounded-lg py-2 text-sm hover:bg-stone-300">Cancel</button>
                   <button onClick={clearAll} className="flex-1 bg-red-700 text-white rounded-lg py-2 text-sm hover:bg-red-800">Delete everything</button>
@@ -886,33 +1060,6 @@
           {toast && (
             <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[80] bg-stone-800 text-white text-sm px-4 py-2 rounded-full shadow-lg">
               {toast}
-            </div>
-          )}
-
-          {/* ---------- Reminder Screensaver Popup ---------- */}
-          {activeReminder && (
-            <div className="fixed inset-0 z-[60] ss-bg overflow-hidden">
-              <div className="absolute top-4 right-4 z-10">
-                <button onClick={() => setActiveReminder(null)} className="bg-white/20 hover:bg-white/30 text-white rounded-full p-2">
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-              <div className="ss-card absolute">
-                <div className="bg-white/95 backdrop-blur rounded-2xl shadow-2xl px-6 py-5 max-w-xs">
-                  <div className="flex items-center gap-2 text-orange-700 mb-2">
-                    <BellRing className="w-6 h-6" />
-                    <span className="font-bold uppercase text-xs tracking-wide">Reminder</span>
-                  </div>
-                  <p className="text-xl font-bold text-stone-800 leading-snug">{activeReminder.text}</p>
-                  <p className="text-xs text-stone-500 mt-1">{fmtTime(activeReminder.time)}</p>
-                  <div className="flex gap-2 mt-4">
-                    {activeReminder.id !== 'preview' && (
-                      <button onClick={snoozeReminder} className="flex-1 bg-stone-200 text-stone-700 rounded-lg py-2 text-sm hover:bg-stone-300">Snooze 5 min</button>
-                    )}
-                    <button onClick={() => setActiveReminder(null)} className="flex-1 bg-amber-800 text-white rounded-lg py-2 text-sm hover:bg-amber-900">Dismiss</button>
-                  </div>
-                </div>
-              </div>
             </div>
           )}
         </div>
